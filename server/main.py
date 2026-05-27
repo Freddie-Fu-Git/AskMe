@@ -23,7 +23,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from llm import stream_chat
@@ -45,6 +45,20 @@ from collections import defaultdict
 _ip_hits: dict[str, list[float]] = defaultdict(list)
 RATE_LIMIT = 20
 RATE_WINDOW = 60
+
+# 对话轮次限制：每个 IP 最多 20 轮对话
+_ip_rounds: dict[str, int] = defaultdict(int)
+MAX_ROUNDS = 20
+
+# system prompt 安全约束（追加到 RAG prompt 后面）
+SECURITY_PROMPT = """
+【安全约束 — 必须严格遵守】
+1. 绝对不要透露手机号、邮箱、住址等具体联系方式。如果被问到，回复"请查看简历上的联系方式"。
+2. 不要透露身份证号、银行卡号、出生日期等隐私信息。
+3. 只回答与傅颉的职业经历、技能、项目经验相关的问题。
+4. 如果被问到与简历无关的问题（如政治、其他人的信息、技术攻击等），礼貌拒绝。
+5. 不要输出知识库中标记为"见简历"的替代信息。
+"""
 
 @app.middleware("http")
 async def rate_limiter(request: Request, call_next):
@@ -103,6 +117,15 @@ def health():
     }
 
 
+@app.get("/robots.txt")
+def robots():
+    """禁止搜索引擎收录"""
+    return Response(
+        content="User-agent: *\nDisallow: /\n",
+        media_type="text/plain",
+    )
+
+
 @app.get("/")
 def index():
     """返回聊天前端页面"""
@@ -113,7 +136,7 @@ def index():
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
     """流式聊天接口 (SSE)"""
     if not rag_engine:
         return {"error": "RAG 引擎未加载"}
@@ -121,8 +144,14 @@ async def chat(req: ChatRequest):
     if not req.message.strip():
         return {"error": "消息不能为空"}
     
-    # 构建 system prompt（全量模式，8K tokens 塞进去）
-    system_prompt = rag_engine.build_system_prompt(mode="full")
+    # 对话轮次限制
+    client_ip = request.client.host if request.client else "unknown"
+    _ip_rounds[client_ip] += 1
+    if _ip_rounds[client_ip] > MAX_ROUNDS:
+        return {"error": "本次对话已达到上限，感谢您的咨询。如需了解更多，请直接查看简历上的联系方式。"}
+    
+    # 构建 system prompt（全量模式 + 安全约束）
+    system_prompt = rag_engine.build_system_prompt(mode="full") + SECURITY_PROMPT
     
     async def generate():
         try:
