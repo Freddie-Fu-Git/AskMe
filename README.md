@@ -2,18 +2,14 @@
 
 简历 AI 聊天机器人。简历上放置二维码，面试官/HR/猎头扫码后与 AI 对话，基于个人知识库准确回答职业经历、项目经验、技能背景等相关问题。
 
-## 线上地址
-
-`https://askme.logth.ink`
-
 ## 架构
 
 ```
-简历二维码 → askme.logth.ink
+简历二维码 → 域名
                   │
-            Nginx 反向代理
+            反向代理
                   │
-            FRP 内网穿透
+            内网穿透
                   │
             ┌─────┴─────┐
             │ FastAPI   │
@@ -38,7 +34,7 @@
 | LLM | GLM-5-turbo via Z.AI | 流式 SSE，过滤 reasoning_content |
 | Embedding | BAAI/bge-m3 via SiliconFlow | 1024 维向量，免费额度 |
 | 向量存储 | JSON 文件（内存加载） | 10 个文件，< 300KB，无需向量数据库 |
-| 部署 | systemd + FRP + Nginx | 开机自启，崩溃自动恢复 |
+| 部署 | systemd 服务 | 开机自启，崩溃自动恢复 |
 
 ## 项目结构
 
@@ -55,9 +51,9 @@ AskMe/
 │   └── index.html            # 聊天前端页面
 ├── data/
 │   ├── knowledge/            # 知识库源文件（本地，不上传）
-│   │   ├── 01_自如/
-│   │   ├── 02_百融云创/
-│   │   ├── 03_译禾/
+│   │   ├── 01_公司A/
+│   │   ├── 02_公司B/
+│   │   ├── 03_公司C/
 │   │   ├── 04_个人/
 │   │   ├── 05_简历/
 │   │   └── 06_方法论/
@@ -94,7 +90,7 @@ AskMe/
 响应：SSE 流
 ```
 data: {"content": "在"}
-data: {"content": "自如"}
+data: {"content": "公司A"}
 ...
 data: [DONE]
 ```
