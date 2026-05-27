@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AskMe — 傅颉的简历 AI</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+.header { background: #1a1a2e; color: white; padding: 12px 16px; display: flex; align-items: center; gap: 8px; }
+.header h1 { font-size: 16px; font-weight: 600; }
+.header .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
+.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: #1a1a2e; color: white; border-bottom-right-radius: 4px; }
+.msg.bot { align-self: flex-start; background: white; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+.msg.bot.typing::after { content: "▊"; animation: blink 0.8s infinite; }
+@keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+.input-bar { padding: 12px; background: white; border-top: 1px solid #e5e5e5; display: flex; gap: 8px; }
+.input-bar input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 20px; font-size: 14px; outline: none; }
+.input-bar input:focus { border-color: #1a1a2e; }
+.input-bar button { padding: 10px 18px; background: #1a1a2e; color: white; border: none; border-radius: 20px; font-size: 14px; cursor: pointer; }
+.input-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.welcome { text-align: center; padding: 40px 20px; }
+.welcome h2 { font-size: 18px; margin-bottom: 8px; color: #1a1a2e; }
+.welcome p { color: #666; font-size: 14px; margin-bottom: 20px; }
+.suggestions { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.suggestions button { padding: 8px 16px; border: 1px solid #ddd; border-radius: 20px; background: white; font-size: 13px; color: #333; cursor: pointer; }
+.suggestions button:hover { background: #f0f0f0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="dot"></div>
+  <h1>傅颉 | Resume AI</h1>
+</div>
+
+<div class="messages" id="messages">
+  <div class="welcome" id="welcome">
+    <h2>👋 你好！</h2>
+    <p>我是傅颉的 AI 助手，可以问我关于他的工作经历、项目经验和技能背景。</p>
+    <div class="suggestions">
+      <button onclick="send('介绍一下工作经历')">介绍一下工作经历</button>
+      <button onclick="send('有哪些项目经验')">有哪些项目经验</button>
+      <button onclick="send('AI相关的技能有哪些')">AI相关的技能有哪些</button>
+    </div>
+  </div>
+</div>
+
+<div class="input-bar">
+  <input type="text" id="input" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter')send()" />
+  <button id="sendBtn" onclick="send(input.value)">发送</button>
+</div>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const welcomeEl = document.getElementById('welcome');
+let history = [];
+
+function addMsg(text, role) {
+  if (welcomeEl) welcomeEl.remove();
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  if (role === 'bot') div.classList.add('typing');
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
+}
+
+function send(text) {
+  text = text || inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = '';
+  sendBtn.disabled = true;
+  
+  addMsg(text, 'user');
+  const botDiv = addMsg('', 'bot');
+  
+  // 保存到 history
+  history.push({ role: 'user', content: text });
+  
+  let fullReply = '';
+  
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: text, history: history.slice(-12) })
+  })
+  .then(response => {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    
+    function read() {
+      return reader.read().then(({ done, value }) => {
+        if (done) {
+          botDiv.classList.remove('typing');
+          sendBtn.disabled = false;
+          history.push({ role: 'assistant', content: fullReply });
+          return;
+        }
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+          
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              fullReply += parsed.content;
+              botDiv.textContent = fullReply;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+          } catch {}
+        }
+        
+        return read();
+      });
+    }
+    
+    return read();
+  })
+  .catch(err => {
+    botDiv.textContent = '连接失败，请稍后重试';
+    botDiv.classList.remove('typing');
+    sendBtn.disabled = false;
+  });
+}
+</script>
+
+</body>
+</html>

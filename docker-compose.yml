@@ -1,0 +1,16 @@
+services:
+  askme:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: askme
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
