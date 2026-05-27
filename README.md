@@ -144,4 +144,4 @@ GLM_BASE_URL=https://api.z.ai/api/coding/paas/v4
 
 ## 许可
 
-私有仓库，未开源。
+[MIT License](LICENSE)
