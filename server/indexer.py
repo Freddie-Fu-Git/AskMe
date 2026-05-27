@@ -98,6 +98,78 @@ def load_knowledge(knowledge_dir: Path) -> list[dict]:
     return documents
 
 
+def compile_with_llm(documents: list[dict], api_key: str, base_url: str, model: str) -> list[dict]:
+    """用 LLM 对每个知识库文件做结构化预处理（类 LLM-Wiki）。
+    
+    提取关键事实、数据点、结构化摘要，交叉引用其他文件内容。
+    处理后的文本更适合向量检索和 AI 回答。
+    """
+    COMPILE_PROMPT = """你是一个知识库编辑。请对以下知识库原文进行结构化提炼，产出一份高质量的参考页面。
+
+要求：
+1. 提取所有关键事实、数据、时间线、因果关系
+2. 用清晰的标题和列表组织内容，便于检索
+3. 补充隐含的逻辑关系（如某项目使用了某技能，某成果源于某方法）
+4. 保留所有具体数字、百分比、人名、工具名
+5. 不要遗漏任何实质信息，不要添加原文中没有的内容
+6. 输出纯 markdown，不要 frontmatter
+
+输出格式示例：
+## 概述
+[一段话总结]
+
+## 关键事实
+- 事实1：...
+- 事实2：...
+
+## 详细内容
+### [子主题1]
+...
+
+### [子主题2]
+..."""
+
+    compiled = []
+    
+    with httpx.Client(timeout=120) as client:
+        for i, doc in enumerate(documents):
+            print(f"  编译 {i+1}/{len(documents)}: {doc['title']} ...")
+            
+            try:
+                resp = client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": COMPILE_PROMPT},
+                            {"role": "user", "content": f"请提炼以下知识库页面：\n\n# {doc['title']}\n\n{doc['text']}"},
+                        ],
+                        "max_tokens": 4096,
+                        "temperature": 0.3,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                compiled_text = data["choices"][0]["message"]["content"].strip()
+                
+                if compiled_text:
+                    print(f"    ✓ {len(doc['text'])} → {len(compiled_text)} 字符")
+                    doc["text"] = compiled_text
+                else:
+                    print(f"    - LLM 返回为空，保留原文")
+            except Exception as e:
+                print(f"    - 编译失败 ({e})，保留原文")
+            
+            compiled.append(doc)
+            time.sleep(1)  # 避免 rate limit
+    
+    return compiled
+
+
 def main():
     project_dir = Path(__file__).parent.parent
     knowledge_dir = project_dir / "data" / "knowledge"
@@ -109,6 +181,21 @@ def main():
     
     api_key = get_api_key()
     
+    # 获取 LLM 配置
+    env_file = project_dir / ".env"
+    llm_api_key = ""
+    llm_base_url = ""
+    llm_model = "glm-4.5-air"  # 编译用快速模型
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("GLM_API_KEY="):
+                llm_api_key = line.split("=", 1)[1].strip()
+            elif line.startswith("GLM_BASE_URL="):
+                llm_base_url = line.split("=", 1)[1].strip()
+            elif line.startswith("COMPILE_MODEL="):
+                llm_model = line.split("=", 1)[1].strip()
+    
     print(f"读取知识库: {knowledge_dir}")
     documents = load_knowledge(knowledge_dir)
     print(f"加载 {len(documents)} 个文件:")
@@ -119,6 +206,16 @@ def main():
         total_chars += doc["char_count"]
     
     print(f"\n总计: {total_chars} 字符 ≈ {total_chars // 2} tokens")
+    
+    # LLM 预处理（结构化提炼）
+    if llm_api_key and llm_base_url:
+        print(f"\n使用 {llm_model} 编译知识库...")
+        documents = compile_with_llm(documents, llm_api_key, llm_base_url, llm_model)
+        # 更新字符统计
+        total_chars = sum(len(doc["text"]) for doc in documents)
+        print(f"编译后: {total_chars} 字符 ≈ {total_chars // 2} tokens")
+    else:
+        print("\n跳过 LLM 编译（未配置 GLM API）")
     
     # 调用 embedding API
     print(f"\n调用 {EMBEDDING_MODEL} 生成向量 (dim={EMBEDDING_DIM})...")
