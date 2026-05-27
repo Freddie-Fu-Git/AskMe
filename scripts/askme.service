@@ -1,0 +1,16 @@
+[Unit]
+Description=AskMe Resume AI Chatbot
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Projects/AskMe
+ExecStart=/home/pi/Projects/AskMe/.venv/bin/python -m uvicorn server.main:app --host 0.0.0.0 --port 8765
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/pi/Projects/AskMe/.env
+
+[Install]
+WantedBy=multi-user.target

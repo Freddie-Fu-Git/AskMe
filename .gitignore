@@ -25,3 +25,4 @@ worker/node_modules/
 
 # Docker volumes
 *.log
+askme_qr.png
