@@ -1,3 +1,6 @@
+# Knowledge base (local only)
+data/knowledge/
+
 # Runtime data
 data/embeddings.json
 
