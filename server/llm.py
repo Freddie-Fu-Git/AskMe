@@ -15,7 +15,7 @@ import httpx
 # 默认配置
 DEFAULT_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 DEFAULT_MODEL = "glm-5-turbo"
-MAX_TOKENS = 1024
+MAX_TOKENS = 2048
 
 
 def _load_env():

@@ -23,7 +23,7 @@ if str(SERVER_DIR) not in sys.path:
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from llm import stream_chat
@@ -39,6 +39,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 简易限流：每个 IP 每 60 秒最多 20 次请求
+from collections import defaultdict
+_ip_hits: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT = 20
+RATE_WINDOW = 60
+
+@app.middleware("http")
+async def rate_limiter(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    hits = _ip_hits[client_ip]
+    # 清理过期记录
+    _ip_hits[client_ip] = [t for t in hits if now - t < RATE_WINDOW]
+    if len(_ip_hits[client_ip]) >= RATE_LIMIT:
+        return JSONResponse(status_code=429, content={"error": "请求过于频繁，请稍后再试"})
+    _ip_hits[client_ip].append(now)
+    response = await call_next(request)
+    return response
 
 # 加载 RAG 引擎（启动时加载，常驻内存）
 DATA_DIR = Path(__file__).parent.parent / "data"
